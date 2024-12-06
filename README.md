@@ -37,8 +37,7 @@ This repository contains code for training and evaluating CNN models on the MNIS
 
 ## Training logs for 20 epochs
 
-loss=0.12099608033895493 batch_id=468: 100%|██████████| 469/469 [00:20<00:00, 23.32it/s]
-
+loss=0.12099608033895493 batch_id=468: 100%|██████████| 469/469 [00:20<00:00, 23.32it/s]  <br />
 Test set: Average loss: 0.1098, Accuracy: 9698/10000 (97%)
 
 loss=0.045415740460157394 batch_id=468: 100%|██████████| 469/469 [00:18<00:00, 25.37it/s]

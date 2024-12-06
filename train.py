@@ -3,76 +3,153 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
+
 
 # Define a simple 3-layer DNN with convolutional and fully connected layers
-class SimpleCNN(nn.Module):
+
+class Net(nn.Module):
     def __init__(self):
-        super(SimpleCNN, self).__init__()
+        super(Net, self).__init__()
+        # Initial convolution block
+        self.conv_initial = nn.Conv2d(in_channels=1, out_channels=128, kernel_size=3, padding=1)
+        self.bn_initial = nn.BatchNorm2d(num_features=128)
+        self.channel_reducer1 = nn.Conv2d(in_channels=128, out_channels=4, kernel_size=1, padding=1)
+
+        # First feature extraction block
+        self.conv_block1_1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=3, padding=1)
+        self.bn_block1_1 = nn.BatchNorm2d(num_features=16)
+        self.pool_block1 = nn.MaxPool2d(2, 2)
         
-        # First Convolutional Layer: 1 input channel, 4 filters, 3x3 kernel
-        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, padding=1)  # 28x28 -> 28x28
-        self.pool = nn.MaxPool2d(2, 2)  # Max pooling with a 2x2 window
+        # Second feature extraction block
+        self.conv_block2_1 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+        self.bn_block2_1 = nn.BatchNorm2d(num_features=16)
+        self.conv_block2_2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        self.bn_block2_2 = nn.BatchNorm2d(num_features=32)
+
+        # Dimensionality reduction block
+        self.pool_block2 = nn.MaxPool2d(2, 2)
+        self.channel_reducer2 = nn.Conv2d(in_channels=32, out_channels=16, kernel_size=1, padding=1)
+
+        # Final feature extraction block
+        self.conv_final1 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+        self.bn_final1 = nn.BatchNorm2d(num_features=16)
+        self.conv_final2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        self.bn_final2 = nn.BatchNorm2d(num_features=32)
         
-        # Second Convolutional Layer: 4 input channels, 8 filters, 3x3 kernel
-        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, padding=1)  # 28x28 -> 28x28
-        # Max Pooling
-        self.conv2_pool = nn.MaxPool2d(2, 2)  # 28x28 -> 14x14
-        
-        # Fully connected layers
-        self.fc1 = nn.Linear(8 * 7 * 7, 61)  # Flattening the 14x14x8 output to 64
-        self.fc2 = nn.Linear(61, 10)  # 10 output units for MNIST classes
-        
+        # Classification head
+        self.classifier = nn.Conv2d(in_channels=32, out_channels=10, kernel_size=1, padding=1)
+        self.global_pool = nn.AvgPool2d(kernel_size=7)
+        self.dropout = nn.Dropout2d(0.1)
+
     def forward(self, x):
-        # Apply first convolution, then max pooling
-        x = self.pool(torch.relu(self.conv1(x)))
-        
-        # Apply second convolution, then max pooling
-        x = self.conv2_pool(torch.relu(self.conv2(x)))
-        
-        # Flatten the tensor before passing it to fully connected layers
-        x = x.view(-1, 8 * 7 * 7)  # Flatten the 14x14x8 to 1D vector
-        
-        # Apply fully connected layers
-        x = torch.relu(self.fc1(x))
-        x = self.fc2(x)  # Output layer
-        return x
+        # Initial convolution block
+        x = self.conv_initial(x)
+        x = F.relu(self.bn_initial(x))
+        x = self.dropout(x)
+        x = self.channel_reducer1(x)
+
+        # First feature extraction block
+        x = self.conv_block1_1(x)
+        x = F.relu(self.bn_block1_1(x))
+        x = self.dropout(x)
+        x = self.pool_block1(x)
+
+        # Second feature extraction block
+        x = self.conv_block2_1(x)
+        x = F.relu(self.bn_block2_1(x))
+        x = self.dropout(x)
+        x = self.conv_block2_2(x)
+        x = F.relu(self.bn_block2_2(x))
+        x = self.dropout(x)
+
+        # Dimensionality reduction block
+        x = self.pool_block2(x)
+        x = self.channel_reducer2(x)
+
+        # Final feature extraction block
+        x = self.conv_final1(x)
+        x = F.relu(self.bn_final1(x))
+        x = self.dropout(x)
+        x = self.conv_final2(x)
+        x = F.relu(self.bn_final2(x))
+        x = self.dropout(x)
+
+        # Classification head
+        x = self.classifier(x)
+        x = self.global_pool(x)
+        x = x.view(-1, 10)
+        return F.log_softmax(x)
 
 
 # Transformations and data loading
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-trainset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-trainloader = DataLoader(trainset, batch_size=100, shuffle=True)
+# transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+# trainset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+# trainloader = DataLoader(trainset, batch_size=128, shuffle=True)
 
-# Instantiate model, loss function, and optimizer
-model = SimpleCNN()
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.02)
-print(f'model parameters: {sum(p.numel() for p in model.parameters())}')
-
-# Train for 1 epoch
-num_epochs = 1
-for epoch in range(num_epochs):
-    running_loss = 0.0
-    correct = 0
-    total = 0
-    for inputs, labels in trainloader:
+from tqdm import tqdm
+def train(model, device, train_loader, optimizer, epoch):
+    model.train()
+    pbar = tqdm(train_loader)
+    for batch_idx, (data, target) in enumerate(pbar):
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
+        output = model(data)
+        loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
+        pbar.set_description(desc= f'loss={loss.item()} batch_id={batch_idx}')
 
-        running_loss += loss.item()
-            
-            # Compute accuracy
-        _, predicted = torch.max(outputs, 1)  # Get the predicted class
-        total += labels.size(0)  # Number of examples in the batch
-        correct += (predicted == labels).sum().item()
 
-    avg_loss = running_loss / len(trainloader)
-    accuracy = (correct / total) * 100  # Accuracy as a percentage
-    
-    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
+def test(model, device, test_loader):
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
+            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    test_loss /= len(test_loader.dataset)
+
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
+
+
+# Instantiate model, loss function, and optimizer
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
+
+
+torch.manual_seed(1)
+batch_size = 128
+
+kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+train_loader = torch.utils.data.DataLoader(
+    datasets.MNIST('../data', train=True, download=True,
+                    transform=transforms.Compose([
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.1307,), (0.3081,))
+                    ])),
+    batch_size=batch_size, shuffle=True, **kwargs)
+test_loader = torch.utils.data.DataLoader(
+    datasets.MNIST('../data', train=False, transform=transforms.Compose([
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.1307,), (0.3081,))
+                    ])),
+    batch_size=batch_size, shuffle=True, **kwargs)
+
+
+model = Net().to(device)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+for epoch in range(1, 2):
+    train(model, device, train_loader, optimizer, epoch)
+    test(model, device, test_loader)
     
 
 # Save the model as 'model_latest.pth'

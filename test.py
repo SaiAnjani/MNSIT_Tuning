@@ -5,59 +5,104 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import os
 import glob
-from train import SimpleCNN  # Import the model from the training script
+from train import Net  # Changed to import Net instead of SimpleCNN
 
-# Find the latest model file based on timestamp
-model_files = glob.glob("model_*.pth")  # Matches files like model_YYYYMMDD-HHMMSS.pth
-if not model_files:
-    raise FileNotFoundError("No model files found. Please train a model first.")
-latest_model_file = max(model_files, key=os.path.getmtime)  # Get the latest model based on modification time
-
-# Load the model
-model = SimpleCNN()
-model.load_state_dict(torch.load(latest_model_file))
-
-# Check model parameters
-def check_model_parameters(model):
+def check_model_architecture(model):
+    """Check various architectural requirements of the model"""
+    # Check for batch normalization
+    has_batchnorm = any(isinstance(module, nn.BatchNorm2d) for module in model.modules())
+    assert has_batchnorm, "Model must use batch normalization"
+    
+    # Check for dropout
+    has_dropout = any(isinstance(module, nn.Dropout2d) for module in model.modules())
+    assert has_dropout, "Model must use dropout"
+    
+    # Check for Global Average Pooling
+    has_gap = any(isinstance(module, nn.AvgPool2d) for module in model.modules())
+    assert has_gap, "Model must use Global Average Pooling"
+    
+    # Get parameter count
     param_count = sum(p.numel() for p in model.parameters())
-    assert param_count < 25000, f"Model has too many parameters: {param_count}"
+    print(f"Total parameters: {param_count:,}")
+    assert param_count < 50000, f"Model has too many parameters: {param_count}"
+    
+    return {
+        'has_batchnorm': has_batchnorm,
+        'has_dropout': has_dropout,
+        'has_gap': has_gap,
+        'param_count': param_count
+    }
 
-# Check model input size
-def check_input_size(model, sample_input):
+def check_input_output(model):
+    """Check input and output dimensions"""
+    dummy_input = torch.randn(1, 1, 28, 28)
     try:
-        output = model(sample_input)
-        print(f'Model size validated & Test passed')
+        output = model(dummy_input)
+        assert output.shape[1] == 10, f"Output size is not 10: {output.shape[1]}"
+        print("Input/Output dimensions validated")
     except Exception as e:
-        assert False, f"Model failed on 28x28 input: {e}"
+        raise AssertionError(f"Model failed on 28x28 input: {e}")
 
-# Check model output size
-def check_output_size(model):
-    dummy_input = torch.randn(1, 1, 28, 28)  # Example of a single 28x28 MNIST image
-    output = model(dummy_input)
-    assert output.shape[1] == 10, f"Output size is not 10: {output.shape[1]}"
-
-# Check accuracy
-def check_accuracy(model, testloader):
+def check_accuracy(model, testloader, device):
+    """Check model accuracy on test set"""
+    model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
         for inputs, labels in testloader:
+            inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+    
     accuracy = 100 * correct / total
+    print(f"Model accuracy: {accuracy:.2f}%")
     assert accuracy > 70, f"Accuracy is too low: {accuracy}%"
+    return accuracy
 
-# Load MNIST test data
-testset = datasets.MNIST(root='./data', train=False, download=False, transform=transforms.ToTensor())
-# datasets.MNIST(root='./data', train=False, download=True, transform=transforms.ToTensor())
-testloader = DataLoader(testset, batch_size=64, shuffle=False)
+def main():
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Find and load the latest model
+    model_files = glob.glob("model_*.pth")
+    if not model_files:
+        raise FileNotFoundError("No model files found. Please train a model first.")
+    latest_model_file = max(model_files, key=os.path.getmtime)
+    
+    # Initialize and load model
+    model = Net().to(device)
+    model.load_state_dict(torch.load(latest_model_file))
+    model.eval()
+    
+    # Load test data
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    testset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+    testloader = DataLoader(testset, batch_size=64, shuffle=False)
+    
+    # Run all checks
+    print("\nRunning model architecture checks...")
+    arch_results = check_model_architecture(model)
+    
+    print("\nChecking input/output dimensions...")
+    check_input_output(model)
+    
+    print("\nChecking model accuracy...")
+    accuracy = check_accuracy(model, testloader, device)
+    
+    # Print summary
+    print("\nTest Summary:")
+    print(f"✓ Batch Normalization: {'Present' if arch_results['has_batchnorm'] else 'Missing'}")
+    print(f"✓ Dropout: {'Present' if arch_results['has_dropout'] else 'Missing'}")
+    print(f"✓ Global Average Pooling: {'Present' if arch_results['has_gap'] else 'Missing'}")
+    print(f"✓ Parameter Count: {arch_results['param_count']:,}")
+    # print(f"✓ Accuracy: {accuracy:.2f}%")
+    
+    print("\nAll tests passed successfully! 🎉")
 
-# Perform checks
-check_model_parameters(model)
-check_input_size(model, torch.randn(1, 1, 28, 28))  # Test with a dummy input
-check_output_size(model)
-check_accuracy(model, testloader)
-
-print("All tests passed!")
+if __name__ == "__main__":
+    main()

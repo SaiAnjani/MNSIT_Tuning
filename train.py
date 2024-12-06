@@ -4,6 +4,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from tqdm import tqdm
 
 
 # Define a simple 3-layer DNN with convolutional and fully connected layers
@@ -87,7 +88,7 @@ class Net(nn.Module):
 # trainset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
 # trainloader = DataLoader(trainset, batch_size=128, shuffle=True)
 
-from tqdm import tqdm
+
 def train(model, device, train_loader, optimizer, epoch):
     model.train()
     pbar = tqdm(train_loader)
